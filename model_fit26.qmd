@@ -1,0 +1,20 @@
+---
+title: "model.qmd"
+format: html
+editor: visual
+---
+
+```{r}
+# loading libraries
+library(dplyr)
+library(DataExplorer)
+library(glmnet)
+```
+
+```{r}
+source("util.R")
+
+book26 = read.csv("data/book26.csv", header = T)
+book26 = set_types(book26)
+#sourceable
+```
