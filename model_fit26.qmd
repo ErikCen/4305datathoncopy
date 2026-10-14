@@ -16,5 +16,96 @@ source("util.R")
 
 book26 = read.csv("data/book26.csv", header = T)
 book26 = set_types(book26)
-#sourceable
+
+claims26 = book26 %>%
+  mutate(
+    ExcessChosen = factor(ExcessChosen, levels = c(500, 750, 1000))
+  )
+severity26 = book26 %>%
+  filter(ClaimNb > 0) %>%
+  mutate(
+    AvgSeverity = ClaimAmount / ClaimNb,
+    ExcessChosen = factor(ExcessChosen, levels = c(500, 750, 1000))
+  )
+```
+
+```{r}
+# Fit a simple GLM based on domain knowledge and legacy factors.
+
+# Covariates:
+# - Zone, VehicleType, Age, NCD, VehValue
+# 
+# ClaimNb ~ DriverAge + YearsLicensed + VehAge + VehValue +
+#   VehicleType + RiskZone + Density + AnnualKms +
+#   ExcessChosen + GaragingLocation + VehicleUse +
+#   NCDLevel + TenureYears + MultiPolicyFlag +
+#   PaymentFrequency + offset(log(Exposure))
+
+freq_formula_all = ClaimNb ~ DriverAge + YearsLicensed + VehAge + VehValue +
+  VehicleType + RiskZone + Density + AnnualKms +
+  ExcessChosen + GaragingLocation + VehicleUse +
+  NCDLevel + TenureYears + MultiPolicyFlag +
+  PaymentFrequency + offset(log(Exposure))
+
+sev_formula_all = AvgSeverity ~ DriverAge + YearsLicensed + VehAge + VehValue +
+  VehicleType + RiskZone + Density + AnnualKms +
+  ExcessChosen + GaragingLocation + VehicleUse +
+  NCDLevel + TenureYears + MultiPolicyFlag +
+  PaymentFrequency
+
+freq_model_all = glm(freq_formula_all, data = claims26, family = poisson(link = "log"))
+summary(freq_model_all)
+# DriverAge / YearsLicensed + VehicleType (Ute) + RiskZone + AnnualKms + Garaging Location + NCDLevel / TenureYears as the risk drivers
+# ExcessChosen and MultiPolicyFlag removed as they are not inherent risk drivers
+# Exposure was removed as it doesnt have predictive value and does not appear in future pricing books
+
+sev_model_all = glm(sev_formula_all, data = severity26, family = Gamma(link = "log"))
+summary(sev_model_all)
+# VehValue + VehicleType + RiskZone + NCDLevel / TenureYears
+# ExcessChosen was removed
+
+freq_formula_explainable = ClaimNb ~ DriverAge + VehicleType + RiskZone + AnnualKms + GaragingLocation + NCDLevel
+
+sev_formula_explainable = AvgSeverity ~ VehValue + VehicleType + RiskZone + NCDLevel
+
+freq_model = glm(freq_formula_explainable, data = claims26, family = poisson(link = "log"))
+summary(freq_model)
+
+sev_model = glm(sev_formula_explainable, data = severity26, family = Gamma(link = "log"))
+summary(sev_model)
+```
+
+```{r}
+# Generate a technical price for book27
+book27 = read.csv("data/renewal_book_2027.csv", header = T)
+book27 = set_types(book27)
+
+book27 = book27 %>%
+  mutate(
+    PredictedClaimNb = predict(freq_model, newdata = ., type = "response"),
+    PredictedAvgSev = predict(sev_model, newdata = ., type = "response"),
+    TechnicalPrice = PredictedClaimNb * PredictedAvgSev
+  )
+```
+
+```{r}
+source("discount.R")
+FixedCost = 85
+VariableExpenseRate = 0.1
+ProfitMargin = 0.08
+
+
+book27 = book27 %>%
+  mutate(
+    LoadedPremium = (TechnicalPrice + FixedCost) / (1 - VariableExpenseRate - ProfitMargin),
+    AdditiveDiscountFactor = 1 - (get_NoClaimDiscount(NCDLevel) + get_LoyaltyDiscount(TenureYears) + get_MultiPolicyDiscount(MultiPolicyFlag)),
+    MultiplicativeDiscountFactor = (1 - get_NoClaimDiscount(NCDLevel)) *
+                                   (1 - get_LoyaltyDiscount(TenureYears)) *
+                                   (1 - get_MultiPolicyDiscount(MultiPolicyFlag)),
+    AdditiveDiscountPremium = AdditiveDiscountFactor * LoadedPremium,
+    MultiplicativeDiscountPremium = MultiplicativeDiscountFactor * LoadedPremium
+  )
+
+# We will generate 1 premium based on additive discount and one on multiplicative discounts (they are commutative so discounts can be in any order)
+# They will be unbounded and then we will decide the cap and collar.
 ```
