@@ -6,7 +6,7 @@ How to use this github.
 Not everything is in one file so you need to pay attention.
 
 1. cleaning.R contains a function to convert the 2023-26 raw data into the cleaned data.
-2. util.R constains a function that sets the correct types for common variables for all the pricing books.
+2. util.R contains a function that sets the correct types for common variables for all the pricing books.
     - Note 2028 book has a NewBusinessFlag which you manually set to boolean
 3. The full dataset for each year will be named bookYY where YY represents the year. The common importing workflow would look like.
 

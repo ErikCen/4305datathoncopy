@@ -85,27 +85,38 @@ book27 = book27 %>%
     PredictedClaimNb = predict(freq_model, newdata = ., type = "response"),
     PredictedAvgSev = predict(sev_model, newdata = ., type = "response"),
     TechnicalPrice = PredictedClaimNb * PredictedAvgSev
-  )
+  ) %>%
+  rename(Baseline = Premium_2026) # To be consistent with 28 book
 ```
 
 ```{r}
-source("discount.R")
+source("waterfall.R")
 FixedCost = 85
 VariableExpenseRate = 0.1
 ProfitMargin = 0.08
+Collar = 0.1
+Cap = 0.15
+InstalmentLoading = 0.03
 
+steps <- list(
+  pe_loading_step(FixedCost, VariableExpenseRate, ProfitMargin),
+  bounds_step(Collar, Cap),
+  discount_step("addition"),
+  instalment_loading_step(InstalmentLoading)
+)
 
-book27 = book27 %>%
-  mutate(
-    LoadedPremium = (TechnicalPrice + FixedCost) / (1 - VariableExpenseRate - ProfitMargin),
-    AdditiveDiscountFactor = 1 - (get_NoClaimDiscount(NCDLevel) + get_LoyaltyDiscount(TenureYears) + get_MultiPolicyDiscount(MultiPolicyFlag)),
-    MultiplicativeDiscountFactor = (1 - get_NoClaimDiscount(NCDLevel)) *
-                                   (1 - get_LoyaltyDiscount(TenureYears)) *
-                                   (1 - get_MultiPolicyDiscount(MultiPolicyFlag)),
-    AdditiveDiscountPremium = AdditiveDiscountFactor * LoadedPremium,
-    MultiplicativeDiscountPremium = MultiplicativeDiscountFactor * LoadedPremium
-  )
+book27$CommercialPrice = waterfall(book27$TechnicalPrice, book27, steps)
 
 # We will generate 1 premium based on additive discount and one on multiplicative discounts (they are commutative so discounts can be in any order)
 # They will be unbounded and then we will decide the cap and collar.
+```
+
+```{r}
+# Set a cap at the maximum for each lapse risk
+# Set a flat collar at the technical price
+# Both are set before discounts are applied
+
+
+
+
 ```

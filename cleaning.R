@@ -87,14 +87,84 @@ clean_claims <- function(data,
     mutate(
       ExcessChosen = as.integer(replace(ExcessChosen,
                                         !is.na(ExcessChosen) & ExcessChosen == 999, 1000L)),
-      DriverAge    = replace(DriverAge, !is.na(DriverAge) & DriverAge == -1, NA),
+      DriverAge    = replace(DriverAge, !is.na(DriverAge) & (DriverAge == -1 | DriverAge < max_age), NA),
       VehAge       = replace(VehAge,    !is.na(VehAge) & VehAge < 0, NA)
     )
 
-  # Remove impossible driver ages (keep NAs for now; they are handled below)
-  data <- data |> filter(is.na(DriverAge) | DriverAge < max_age)
-  log_step("After removing impossible driver ages", data)
-
+  # 4. Recover missing values within PolicyID -------------------------------
+  #    Uses longitudinal structure (PolicyID + Year) to fill NAs in
+  #    DriverAge, VehValue, AnnualKms and GaragingLocation.
+  if (all(c("PolicyID", "Year") %in% names(data))) {
+    
+    # -- helpers ------------------------------------------------------------
+    fill_factor <- function(x) {
+      vals <- x[!is.na(x)]
+      if (length(vals) == 0) return(x)
+      if (length(unique(vals)) == 1) {
+        val <- vals[1]
+        if (is.factor(x)) val <- as.character(val)
+        x[is.na(x)] <- val
+      }
+      x
+    }
+    
+    fill_age <- function(age, year) {
+      miss <- is.na(age)
+      if (!any(miss)) return(age)
+      known <- which(!is.na(age) & !is.na(year))
+      if (length(known) == 0) return(age)
+      for (i in which(miss)) {
+        if (is.na(year[i])) next
+        prev <- known[year[known] < year[i]]
+        if (length(prev) > 0) {
+          ref <- prev[which.max(year[prev])]
+        } else {
+          ref <- known[which.min(year[known])]
+        }
+        age[i] <- age[ref] + (year[i] - year[ref])
+      }
+      age
+    }
+    
+    fill_veh <- function(value, year) {
+      ok <- !is.na(value) & !is.na(year)
+      if (sum(ok) < 2) return(value)
+      fit  <- lm(value ~ year, data = data.frame(value = value[ok], year = year[ok]))
+      pred <- predict(fit, newdata = data.frame(year = year))
+      value[is.na(value)] <- pmax(0, pred[is.na(value)])
+      value
+    }
+    
+    # -- apply --------------------------------------------------------------
+    if (verbose) {
+      before <- sapply(data[c("DriverAge","VehValue","AnnualKms","GaragingLocation")],
+                       function(x) sum(is.na(x)))
+      message("  Missing before recovery: ",
+              paste(names(before), before, sep = "=", collapse = ", "))
+    }
+    
+    data <- data |>
+      mutate(Year = as.numeric(Year)) |>
+      arrange(PolicyID, Year) |>
+      group_by(PolicyID) |>
+      mutate(
+        AnnualKms        = fill_factor(AnnualKms),
+        GaragingLocation = fill_factor(GaragingLocation),
+        DriverAge        = fill_age(DriverAge, Year),
+        VehValue         = fill_veh(VehValue, Year)
+      ) |>
+      ungroup()
+    
+    if (verbose) {
+      after <- sapply(data[c("DriverAge","VehValue","AnnualKms","GaragingLocation")],
+                      function(x) sum(is.na(x)))
+      message("  Missing after recovery:  ",
+              paste(names(after), after, sep = "=", collapse = ", "))
+    }
+    log_step("After within-policy recovery", data)
+  } else if (verbose) {
+    message("  Skipping within-policy recovery (PolicyID/Year not present)")
+  }
   # 4. Drop rows with any missing values ------------------------------------
   if (verbose) {
     n_miss <- sum(!complete.cases(data))
