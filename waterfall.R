@@ -17,10 +17,12 @@ discount_step = function(operation) function(p, pol) {
                              get_LoyaltyDiscount(TenureYears) + 
                              get_MultiPolicyDiscount(MultiPolicyFlag))
       
-    } else { # multiply operation
+    } else if (operation == "multiply" | operation == "multiplication" | operation == "times") { # multiply operation
       discount_factor = (1 - get_NoClaimDiscount(NCDLevel)) *
                         (1 - get_LoyaltyDiscount(TenureYears)) *
                         (1 - get_MultiPolicyDiscount(MultiPolicyFlag))
+    } else {
+      discount_factor = NA
     }
     p * discount_factor
   })

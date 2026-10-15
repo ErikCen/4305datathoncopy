@@ -9,6 +9,7 @@ editor: visual
 library(dplyr)
 library(DataExplorer)
 library(glmnet)
+library(tidyr)
 ```
 
 ```{r}
@@ -101,22 +102,41 @@ InstalmentLoading = 0.03
 steps <- list(
   pe_loading_step(FixedCost, VariableExpenseRate, ProfitMargin),
   bounds_step(Collar, Cap),
-  discount_step("addition"),
+  discount_step("multiplication"),
+  instalment_loading_step(InstalmentLoading)
+)
+
+# Testing the waterfall with the policies in the data.
+# Future test would involve a grid search across all the (covariates and range of possible premiums)
+
+pre_discount_steps <- list(
+  pe_loading_step(FixedCost, VariableExpenseRate, ProfitMargin),
+  bounds_step(Collar, Cap),
   instalment_loading_step(InstalmentLoading)
 )
 
 book27$CommercialPrice = waterfall(book27$TechnicalPrice, book27, steps)
 
+promise_tests = crossing(
+  Baseline        = seq(300, 3500, by = 50),
+  NCDLevel        = 0:6,
+  TenureYears     = 0:12,
+  MultiPolicyFlag = 0:1,
+  PaymentFrequency = c("Annual", "Monthly")
+) %>%
+  mutate(TechnicalPrice = Baseline / 1.35)
+
+promise_tests <- promise_tests %>%
+  mutate(
+    WaterfallPrice   = waterfall(TechnicalPrice, pick(everything()), steps),
+    PreDiscountPrice = waterfall(TechnicalPrice, pick(everything()), pre_discount_steps),
+    PromisedPrice = waterfall(PreDiscountPrice, pick(everything()), list(discount_step("multiply")))
+  )
+
 # We will generate 1 premium based on additive discount and one on multiplicative discounts (they are commutative so discounts can be in any order)
 # They will be unbounded and then we will decide the cap and collar.
-```
 
-```{r}
 # Set a cap at the maximum for each lapse risk
 # Set a flat collar at the technical price
 # Both are set before discounts are applied
-
-
-
-
 ```
