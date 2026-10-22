@@ -101,8 +101,8 @@ InstalmentLoading = 0.03
 
 steps <- list(
   pe_loading_step(FixedCost, VariableExpenseRate, ProfitMargin),
-  bounds_step(Collar, Cap),
   discount_step("multiplication"),
+  bounds_step(Collar, Cap),
   instalment_loading_step(InstalmentLoading)
 )
 
