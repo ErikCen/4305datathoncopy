@@ -1,0 +1,117 @@
+---
+title: "task1b"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(car)
+library(performance)
+library(caret)
+library(glmnet)
+library(doParallel)
+library(parallel)
+library(broom)
+source("util.R")
+```
+
+```{r}
+book26 = read.csv("data/book26.csv")
+book26 = set_types(book26)
+
+book26 = book26 %>% 
+  mutate(
+    AvgSeverity = ClaimAmount / ClaimNb
+  )
+
+train = book26 %>%
+  filter(Year <= 2025)
+
+test = book26 %>%
+  filter(Year == 2026)
+```
+
+```{r}
+all_predictors = c(
+  "DriverAge", "YearsLicensed", "VehAge",
+  "VehValue", "VehicleType", "RiskZone",
+  "Density", "AnnualKms", "ExcessChosen",
+  "GaragingLocation", "VehicleUse",
+  "NCDLevel", "TenureYears",
+  "MultiPolicyFlag", "PaymentFrequency"
+)
+
+f <- as.formula(
+  paste("ClaimAmount ~", paste(all_predictors, collapse = " + "))
+)
+
+m = lm(f, data = train)
+vif_data <- check_collinearity(m)
+plot(vif_data)
+vif_data
+
+# remove driver age and density
+predictors = setdiff(
+  all_predictors, c("DriverAge", "Density")
+)
+
+pred_formula <- as.formula(
+  paste("~", paste(predictors, collapse = " + "))
+)
+```
+
+```{r}
+# Performing lasso regression on the frequency
+x_train_matrix = model.matrix(pred_formula, train)
+y_train_matrix = as.matrix(train$ClaimNb)
+
+
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+cv_lasso <- cv.glmnet(
+  x_train_matrix,
+  y_train_matrix,
+  family = "poisson",
+  type.measure = "deviance",
+  alpha = 1,
+  nfolds = 10,
+  parallel = TRUE
+)
+stopCluster(cl)
+
+plot(cv_lasso$glmnet.fit, xvar = "lambda", main = "Lasso for frequency")
+
+freq_lasso = glmnet(x_train_matrix, y_train_matrix, alpha = 1, lambda = cv_lasso$lambda.min)
+coef(freq_lasso)
+# For the frequency model TenureYears is further dropped by lasso regularisation
+```
+
+```{r}
+# Severity needs to filter the training dataset to policies that claimed
+train = filter(train, ClaimNb > 0)
+
+x_train_matrix = model.matrix(pred_formula, train)
+y_train_matrix = as.matrix(train$AvgSeverity)
+
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+cv_lasso <- cv.glmnet(
+  x_train_matrix,
+  y_train_matrix,
+  family = Gamma(link = "log"),
+  type.measure = "deviance",
+  alpha = 1,
+  nfolds = 10,
+  parallel = TRUE
+)
+stopCluster(cl)
+
+plot(cv_lasso$glmnet.fit, xvar = "lambda", main = "Lasso for severity")
+
+sev_lasso = glmnet(x_train_matrix, y_train_matrix, alpha = 1, lambda = cv_lasso$lambda.min)
+coef(sev_lasso)
+
+# Severity drops no predictors in the lasso
+```
